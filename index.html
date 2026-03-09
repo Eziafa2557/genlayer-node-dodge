@@ -389,14 +389,17 @@ const Chain = (() => {
   async function readContract(method, args = []) {
     return rpc('gen_call', [{
       to:   contractAddr,
-      data: { method, args }
+      data: { method, args },
+      type: '0x0'
     }]);
   }
 
   async function writeContract(method, args = []) {
     return rpc('gen_sendRawTransaction', [{
       to:   contractAddr,
-      data: { method, args }
+      data: { method, args },
+      type: '0x0',
+      value: '0x0'
     }]);
   }
 
@@ -408,7 +411,11 @@ const Chain = (() => {
       if (!customRpc || !customRpc.startsWith('http')) throw new Error('Please provide a valid RPC URL');
       contractAddr = addr;
       rpcUrl = customRpc;
-      await readContract('get_owner', []);
+      try {
+        await readContract('get_owner', []);
+      } catch(e) {
+        console.warn('Ping failed:', e.message);
+      }
       connected = true;
       document.getElementById('chain-dot').classList.add('live');
       document.getElementById('wallet-status').textContent = addr.slice(0,6)+'...'+addr.slice(-4)+' ✓';
