@@ -294,6 +294,7 @@ body::after {
       <!-- Wallet / contract connection -->
       <div id="wallet-strip">
         <input id="contract-addr" placeholder="CONTRACT ADDRESS (0x...)" autocomplete="off" spellcheck="false">
+        <input id="rpc-url" placeholder="RPC URL (https://studio.genlayer.com/api)" autocomplete="off" spellcheck="false" style="width:100%">
         <button id="btn-connect">CONNECT</button>
         <span id="wallet-status">NOT CONNECTED</span>
       </div>
@@ -367,9 +368,11 @@ body::after {
 // ═══════════════════════════════════════════════════════
 const Chain = (() => {
   // Default: hosted GenLayer Studio backend
-  const DEFAULT_RPC = 'https://studio.genlayer.com:8443/api';
+  // GenLayer Studio blocks cross-origin requests (CORS).
+  // The user must provide the RPC URL from their Studio session,
+  // or use the GenLayer testnet public endpoint when available.
   let contractAddr = '';
-  let rpcUrl       = DEFAULT_RPC;
+  let rpcUrl       = '';
   let connected    = false;
 
   async function rpc(method, params = []) {
@@ -390,10 +393,6 @@ const Chain = (() => {
     }]);
   }
 
-  // NOTE: writeContract requires a signed tx from a wallet.
-  // In production you would sign with ethers.js / genlayer-js.
-  // Here we POST a write call using a demo private key placeholder
-  // so the structure is correct and ready to wire up.
   async function writeContract(method, args = []) {
     return rpc('gen_sendRawTransaction', [{
       to:   contractAddr,
@@ -404,10 +403,11 @@ const Chain = (() => {
   return {
     isConnected() { return connected; },
 
-    async connect(addr) {
-      if (!addr || !addr.startsWith('0x')) throw new Error('Invalid address');
+    async connect(addr, customRpc) {
+      if (!addr || !addr.startsWith('0x')) throw new Error('Invalid contract address');
+      if (!customRpc || !customRpc.startsWith('http')) throw new Error('Please provide a valid RPC URL');
       contractAddr = addr;
-      // Ping: read owner to verify contract exists
+      rpcUrl = customRpc;
       await readContract('get_owner', []);
       connected = true;
       document.getElementById('chain-dot').classList.add('live');
@@ -417,13 +417,20 @@ const Chain = (() => {
 
     async submitScore(name, score, tokens, level) {
       if (!connected) return null;
-      return writeContract('submit_score', [name, score, tokens, level]);
+      try {
+        return await writeContract('submit_score', [name, String(score), String(tokens), String(level)]);
+      } catch(e) {
+        console.warn('Chain submit failed:', e.message);
+        return null;
+      }
     },
 
     async getLeaderboard() {
       if (!connected) return null;
-      const result = await readContract('get_leaderboard', []);
-      return result;
+      try {
+        const result = await readContract('get_scores', []);
+        return result;
+      } catch(e) { return null; }
     },
 
     async getBalance(address) {
@@ -643,10 +650,11 @@ document.getElementById('btn-mute').addEventListener('click',()=>{ const m=SFX.t
 // Contract connect button
 document.getElementById('btn-connect').addEventListener('click', async ()=>{
   const addr=document.getElementById('contract-addr').value.trim();
+  const rpc=document.getElementById('rpc-url').value.trim();
   const status=document.getElementById('wallet-status');
   status.textContent='CONNECTING...'; status.className='';
   try{
-    await Chain.connect(addr);
+    await Chain.connect(addr, rpc);
     SFX.chainOk();
     if(lbTab==='chain') renderLBChain();
   }catch(e){
